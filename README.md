@@ -1,0 +1,1 @@
+# Triplet detector for McStas
