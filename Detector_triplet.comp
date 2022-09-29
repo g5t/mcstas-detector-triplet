@@ -16,37 +16,33 @@
 *
 * %D
 *
-* Example: BIFROST_triplet(no=20, filename="Output.x", length=0.3, x0=-0.05, y0=0.02, z0=0.01, x2=0.05, y2=-0.02, z2=-0.01)
+* Example: Detector_triplet(no=20, filename="Output.x", length=0.3, x0=-0.05, y0=0.02, z0=0.01, x2=0.05, y2=-0.02, z2=-0.01)
 *
 * %P
 * INPUT PARAMETERS:
 *
-* length0:    The length of the 0th tube [m]
-* length1:    The length of the 1st (central) tube [m]
-* length2:    The length of the 2nd tube [m]
-* length:     The common tube length. Overrides length0, length1, length2 [m]
-* radius0:    The radius of the 0th tube [m]
-* radius1:    The radius of the 1st (central) tube [m]
-* radius2:    The radius of the 2nd tube [m]
-* radius:     The common tube radius. Overrides radius0, radius1, radius2 [m]
-* x0, y0, z0: The relative postion of tube-0 compared to tube-1 [m]
-* x2, y2, z2: The relative postion of tube-2 compared to tube-1 [m]
-* xangle0:    The relative angle about x for tube-0 [deg]
-* zangle0:    The relative angle about z for tube-0 [deg]
-* xangle2:    The relative angle about x for tube-2 [deg]
-* zangle2:    The relative angle about z for tube-2 [deg]
-* no:         The number of bins per tube [1]
-* levels:     The number of charge-division levels [1]
-* R01:        The connection resistance between tubes 0 and 1 [ohm]
-* R12:        The connection resistance between tubes 1 and 2 [ohm]
-* R:          The connection resistance. Overrides R01 and R12 [ohm]
-* rho0:       The resistivity of the 0th tube [ohm/m]
-* rho1:       The resistivity of the 1st tube [ohm/m]
-* rho2:       The resistivity of the 2nd tube [ohm/m]
-* rho:        The tube resistivity. Overrides rho0, rho1, rho2 [ohm/m]
+* radius0: The radius of the 0th tube [m]
+* radius1: The radius of the 1st (central) tube [m]
+* radius2: The radius of the 2nd tube [m]
+* radius:  The common tube radius. Overrides radius0, radius1, radius2 [m]
+* x0[3]:   The center-of-mass postion of tube-0, in the local coordinate system [m]
+* x1[3]:   The center-of-mass postion of tube-1, in the local coordinate system [m]
+* x2[3]:   The center-of-mass postion of tube-2, in the local coordinate system [m]
+* e0[3]:   The postion of one end of tube-0, relative to its center-of-mass [m]
+* e1[3]:   The postion of one end of tube-1, relative to its center-of-mass [m]
+* e2[3]:   The postion of one end of tube-2, relative to its center-of-mass [m]
+* no:      The number of bins per tube [1]
+* levels:  The number of charge-division levels [1]
+* R01:     The connection resistance between tubes 0 and 1 [ohm]
+* R12:     The connection resistance between tubes 1 and 2 [ohm]
+* R:       The connection resistance. Overrides R01 and R12 [ohm]
+* rho0:    The resistivity of the 0th tube [ohm/m]
+* rho1:    The resistivity of the 1st tube [ohm/m]
+* rho2:    The resistivity of the 2nd tube [ohm/m]
+* rho:     The tube resistivity. Overrides rho0, rho1, rho2 [ohm/m]
 * filename: Name of file in which to store the detector image [string]
 * restore_neutron: If set, the monitor does not influence the neutron state [1]
-* nowritefile: [1]      If set, monitor will skip writing to disk
+* nowritefile: [1] If set, monitor will skip writing to disk
 *
 * OUTPUT PARAMETERS:
 *
@@ -57,14 +53,12 @@
 * %E
 ******************************************************************************/
 
-DEFINE COMPONENT BIFROST_triplet
+DEFINE COMPONENT Detector_triplet
 DEFINITION PARAMETERS ()
   SETTING PARAMETERS (int no=300, string filename=0, levels=1024,
-    length0=0.1, length1=0.1, length2=0.1,
-    radius0=0.01, radius1=0.01, radius2=0.01,
-    length=0., radius=0.,
-    x0=-0.05, y0=0, z0=0, xangle0=0, zangle0=0,
-    x2=0.05, y2=0, z2=0, xangle2=0, zangle2=0,
+    radius0=0.01, radius1=0.01, radius2=0.01, radius=0.,
+    vector x0={0,0,0}, vector x1={0,0,0}, vector x2={0,0,0},
+    vector e0={0,0.1,0}, vector e1={0,0.1,0}, vector e2={0,0.1,0},
     R=0, R01=10, R12=10,
     rho=0, rho0=100, rho1=100, rho2=100,
     He3_pressure=0,
@@ -72,6 +66,44 @@ DEFINITION PARAMETERS ()
     restore_neutron=0, int nowritefile=0)
 OUTPUT PARAMETERS (triplet_N, triplet_p, triplet_p2)
 /* Neutron parameters: (x,y,z,vx,vy,vz,t,sx,sy,sz,p) */
+
+SHARE %{
+#include <math.h>
+
+void Detector_triplet_cross(double x[3], double y[3], double * z){
+  z[2] = x[0] * y[1] - x[1] * y[0];
+  z[1] = x[2] * y[0] - x[0] * y[2];
+  z[0] = x[1] * y[2] - x[2] * y[1];
+}
+
+double Detector_triplet_dot(double x[3], double y[3]){
+  return x[0] * y[0] + x[1] * y[1] + x[2] * y[2];
+}
+
+double Detector_triplet_norm(double x[3]){
+  return sqrt(Detector_triplet_dot(x, x));
+}
+
+void Detector_triplet_hat(double x[3], double* h){
+  double l = Detector_triplet_norm(x);
+  h[0] = x[0]/l;
+  h[1] = x[1]/l;
+  h[2] = x[2]/l;
+}
+
+double Detector_triplet_angle_z(double v[3]){
+  double h[3];
+  Detector_triplet_hat(v, h);
+  printf("(%f %f %f)\n", h[0], h[1], h[2]);
+  return atan2(h[0], h[1]);
+}
+double Detector_triplet_angle_x(double v[3]){
+  double h[3];
+  Detector_triplet_hat(v, h);
+  return atan2(h[2], h[1]);
+}
+
+%}
 
 DECLARE
   %{
@@ -82,6 +114,17 @@ DECLARE
     DArray1d triplet_N;
     DArray1d triplet_p;
     DArray1d triplet_p2;
+    
+    // cylinder position & orientation parameters
+    double xangle0;
+    double zangle0;
+    double xangle1;
+    double zangle1;
+    double xangle2;
+    double zangle2;
+    double length0;
+    double length1;
+    double length2;
   %}
 
 INITIALIZE
@@ -93,23 +136,28 @@ INITIALIZE
     triplet_p = create_darr1d(no);
     triplet_p2 = create_darr1d(no);
     
-    if (length > 0) { length0 = length1 = length2 = length; }
+    /* Calculate orientation angles and lengths from tube-end positions */
+    length0 = 2.0 * Detector_triplet_norm(e0);
+    length1 = 2.0 * Detector_triplet_norm(e1);
+    length2 = 2.0 * Detector_triplet_norm(e2);
+    
+    xangle0 = Detector_triplet_angle_x(e0);
+    xangle1 = Detector_triplet_angle_x(e1);
+    xangle2 = Detector_triplet_angle_x(e2);
+    zangle0 = Detector_triplet_angle_z(e0);
+    zangle1 = Detector_triplet_angle_z(e1);
+    zangle2 = Detector_triplet_angle_z(e2);
+    
     if (radius > 0) { radius0 = radius1 = radius2 = radius; }
 
     if (R > 0) { R01 = R12 = R; }
     if (rho > 0) { rho0 = rho1 = rho2 = rho; }
 
     TOTAL_RESISTANCE = rho0 * length0 + R01 + rho1 * length1 + R12 + rho2 * length2;
-
-    // Esure passed angles (deg) are converted to radians
-    xangle0 = DEG2RAD * xangle0;
-    zangle0 = DEG2RAD * zangle0;
-    xangle2 = DEG2RAD * xangle2;
-    zangle2 = DEG2RAD * zangle2;
     
     /* Check for intersecting tubes ... */
     if (0 /**/) {
-      printf("BIFROST_triplet: %s: Intersecting PSD tube(s)!\n"
+      printf("Detector_triplet: %s: Intersecting PSD tube(s)!\n"
              "ERROR. Exiting",
              NAME_CURRENT_COMP);
       exit(-1);
@@ -117,7 +165,7 @@ INITIALIZE
     
     if(charge_a != 0 && charge_b != 0 && charge_a[0] != '\0' && charge_b[0] != '\0'){
     	if (particle_setvar(_particle, charge_a, 0.) || particle_setvar(_particle, charge_b, 0.)){
-	      printf("BIFROST_triplet: %s: Charge parameter(s) %s and/or %s do not exist!\nERROR. Exiting", 
+	      printf("Detector_triplet: %s: Charge parameter(s) %s and/or %s do not exist!\nERROR. Exiting", 
                NAME_CURRENT_COMP, charge_a, charge_b);
         exit(-1);
     	}
@@ -125,7 +173,7 @@ INITIALIZE
     }
     if (detection_time != 0 && detection_time[0] != '\0') {
       if (particle_setvar(_particle, detection_time, 0.)) {
-        printf("BIFROST_triplet: %s: Time paramter does not exist!\nERROR. Exiting",
+        printf("Detector_triplet: %s: Time paramter does not exist!\nERROR. Exiting",
                NAME_CURRENT_COMP, detection_time);
         exit(-1);
       }
@@ -143,14 +191,19 @@ TRACE
     int intersects=-1;
     double left_charge, right_charge;
 
-    // check the middle tube first, since there is no coordinate transformation
-    if (cylinder_intersect(&t0, &t1, x, y, z, vx, vy, vz, radius1, length1)){
-      intersects = 1;
-    }
     if (intersects < 0){
       // Perform the coordinate transformation for the first tube:
       rot_set_rotation(rot, xangle0, 0., zangle0);
-      coords_get(rot_apply(rot, coords_set(x - x0, y - y0, z - z0)), &tx, &ty, &tz);
+      coords_get(rot_apply(rot, coords_set(x - x0[0], y - x0[1], z - x0[2])), &tx, &ty, &tz);
+      coords_get(rot_apply(rot, coords_set(vx, vy, vz)), &tvx, &tvy, &tvz);
+      if (cylinder_intersect(&t0, &t1, tx, ty, tz, tvx, tvy, tvz, radius0, length0)){
+        intersects = 0; 
+      }
+    }
+    if (intersects < 0){
+      // Perform the coordinate transformation for the middle tube:
+      rot_set_rotation(rot, xangle1, 0., zangle1);
+      coords_get(rot_apply(rot, coords_set(x - x1[0], y - x1[1], z - x1[2])), &tx, &ty, &tz);
       coords_get(rot_apply(rot, coords_set(vx, vy, vz)), &tvx, &tvy, &tvz);
       if (cylinder_intersect(&t0, &t1, tx, ty, tz, tvx, tvy, tvz, radius0, length0)){
         intersects = 0; 
@@ -159,7 +212,7 @@ TRACE
     if (intersects < 0){
       // Perform the coordinate transformation for the last tube:
       rot_set_rotation(rot, xangle2, 0., zangle2);
-      coords_get(rot_apply(rot, coords_set(x - x2, y - y2, z - z2)), &tx, &ty, &tz);
+      coords_get(rot_apply(rot, coords_set(x - x2[0], y - x2[1], z - x2[2])), &tx, &ty, &tz);
       coords_get(rot_apply(rot, coords_set(vx, vy, vz)), &tvx, &tvy, &tvz);
       if (cylinder_intersect(&t0, &t1, tx, ty, tz, tvx, tvy, tvz, radius2, length2)){
         intersects = 2;
@@ -270,25 +323,43 @@ MCDISPLAY
   coords_get(rot_apply(rot, coords_set(0., -length0/2., -radius0)), &zmm[0], &zmm[1], &zmm[2]);
 
   multiline(5, 
-            x0 + mmz[0], y0 + mmz[1], z0 + mmz[2],
-            x0 + pmz[0], y0 + pmz[1], z0 + pmz[2],
-            x0 + ppz[0], y0 + ppz[1], z0 + ppz[2],
-            x0 + mpz[0], y0 + mpz[1], z0 + mpz[2],
-            x0 + mmz[0], y0 + mmz[1], z0 + mmz[2]);
+            x0[0] + mmz[0], x0[1] + mmz[1], x0[2] + mmz[2],
+            x0[0] + pmz[0], x0[1] + pmz[1], x0[2] + pmz[2],
+            x0[0] + ppz[0], x0[1] + ppz[1], x0[2] + ppz[2],
+            x0[0] + mpz[0], x0[1] + mpz[1], x0[2] + mpz[2],
+            x0[0] + mmz[0], x0[1] + mmz[1], x0[2] + mmz[2]);
   multiline(5, 
-            x0 + zmm[0], y0 + zmm[1], z0 + zmm[2],
-            x0 + zpm[0], y0 + zpm[1], z0 + zpm[2],
-            x0 + zpp[0], y0 + zpp[1], z0 + zpp[2],
-            x0 + zmp[0], y0 + zmp[1], z0 + zmp[2],
-            x0 + zmm[0], y0 + zmm[1], z0 + zmm[2]);
+            x0[0] + zmm[0], x0[1] + zmm[1], x0[2] + zmm[2],
+            x0[0] + zpm[0], x0[1] + zpm[1], x0[2] + zpm[2],
+            x0[0] + zpp[0], x0[1] + zpp[1], x0[2] + zpp[2],
+            x0[0] + zmp[0], x0[1] + zmp[1], x0[2] + zmp[2],
+            x0[0] + zmm[0], x0[1] + zmm[1], x0[2] + zmm[2]);
 
   
   // Tube 1
-  rectangle("xy", 0., 0., 0., 2*radius1, length1);
-  rectangle("yz", 0., 0., 0., 2*radius1, length1);
-  circle("xz", 0., -length1/2, 0., radius1);
-  circle("xz", 0., length1/2, 0., radius1);
+  rot_set_rotation(rot, xangle1, 0., zangle1);
+  coords_get(rot_apply(rot, coords_set(radius1, length1/2., 0.)), &ppz[0], &ppz[1], &ppz[2]);
+  coords_get(rot_apply(rot, coords_set(radius1, -length1/2., 0.)), &pmz[0], &pmz[1], &pmz[2]);
+  coords_get(rot_apply(rot, coords_set(-radius1, length1/2., 0.)), &mpz[0], &mpz[1], &mpz[2]);
+  coords_get(rot_apply(rot, coords_set(-radius1, -length1/2., 0.)), &mmz[0], &mmz[1], &mmz[2]);
 
+  coords_get(rot_apply(rot, coords_set(0., length1/2., radius1)), &zpp[0], &zpp[1], &zpp[2]);
+  coords_get(rot_apply(rot, coords_set(0., length1/2., -radius1)), &zpm[0], &zpm[1], &zpm[2]);
+  coords_get(rot_apply(rot, coords_set(0., -length1/2., radius1)), &zmp[0], &zmp[1], &zmp[2]);
+  coords_get(rot_apply(rot, coords_set(0., -length1/2., -radius1)), &zmm[0], &zmm[1], &zmm[2]);
+
+  multiline(5, 
+            x1[0] + mmz[0], x1[1] + mmz[1], x1[2] + mmz[2],
+            x1[0] + pmz[0], x1[1] + pmz[1], x1[2] + pmz[2],
+            x1[0] + ppz[0], x1[1] + ppz[1], x1[2] + ppz[2],
+            x1[0] + mpz[0], x1[1] + mpz[1], x1[2] + mpz[2],
+            x1[0] + mmz[0], x1[1] + mmz[1], x1[2] + mmz[2]);
+  multiline(5, 
+            x1[0] + zmm[0], x1[1] + zmm[1], x1[2] + zmm[2],
+            x1[0] + zpm[0], x1[1] + zpm[1], x1[2] + zpm[2],
+            x1[0] + zpp[0], x1[1] + zpp[1], x1[2] + zpp[2],
+            x1[0] + zmp[0], x1[1] + zmp[1], x1[2] + zmp[2],
+            x1[0] + zmm[0], x1[1] + zmm[1], x1[2] + zmm[2]);
 
   // Tube 2
   rot_set_rotation(rot, xangle2, 0., zangle2);
@@ -303,17 +374,17 @@ MCDISPLAY
   coords_get(rot_apply(rot, coords_set(0., -length2/2., -radius2)), &zmm[0], &zmm[1], &zmm[2]);
 
   multiline(5, 
-            x2 + mmz[0], y2 + mmz[1], z2 + mmz[2],
-            x2 + pmz[0], y2 + pmz[1], z2 + pmz[2],
-            x2 + ppz[0], y2 + ppz[1], z2 + ppz[2],
-            x2 + mpz[0], y2 + mpz[1], z2 + mpz[2],
-            x2 + mmz[0], y2 + mmz[1], z2 + mmz[2]);
+            x2[0] + mmz[0], x2[1] + mmz[1], x2[2] + mmz[2],
+            x2[0] + pmz[0], x2[1] + pmz[1], x2[2] + pmz[2],
+            x2[0] + ppz[0], x2[1] + ppz[1], x2[2] + ppz[2],
+            x2[0] + mpz[0], x2[1] + mpz[1], x2[2] + mpz[2],
+            x2[0] + mmz[0], x2[1] + mmz[1], x2[2] + mmz[2]);
   multiline(5, 
-            x2 + zmm[0], y2 + zmm[1], z2 + zmm[2],
-            x2 + zpm[0], y2 + zpm[1], z2 + zpm[2],
-            x2 + zpp[0], y2 + zpp[1], z2 + zpp[2],
-            x2 + zmp[0], y2 + zmp[1], z2 + zmp[2],
-            x2 + zmm[0], y2 + zmm[1], z2 + zmm[2]);
+            x2[0] + zmm[0], x2[1] + zmm[1], x2[2] + zmm[2],
+            x2[0] + zpm[0], x2[1] + zpm[1], x2[2] + zpm[2],
+            x2[0] + zpp[0], x2[1] + zpp[1], x2[2] + zpp[2],
+            x2[0] + zmp[0], x2[1] + zmp[1], x2[2] + zmp[2],
+            x2[0] + zmm[0], x2[1] + zmm[1], x2[2] + zmm[2]);
 %}
 
 END
