@@ -163,8 +163,9 @@ INITIALIZE
       exit(-1);
     }
     
+    double zero=0.;
     if(charge_a != 0 && charge_b != 0 && charge_a[0] != '\0' && charge_b[0] != '\0'){
-    	if (particle_setvar(_particle, charge_a, 0.) || particle_setvar(_particle, charge_b, 0.)){
+    	if (particle_setvar_void(_particle, charge_a, (void *)&zero) || particle_setvar_void(_particle, charge_b, (void *)&zero)){
 	      printf("Detector_triplet: %s: Charge parameter(s) %s and/or %s do not exist!\nERROR. Exiting", 
                NAME_CURRENT_COMP, charge_a, charge_b);
         exit(-1);
@@ -172,7 +173,7 @@ INITIALIZE
     	STORE_CHARGE = 1;
     }
     if (detection_time != 0 && detection_time[0] != '\0') {
-      if (particle_setvar(_particle, detection_time, 0.)) {
+      if (particle_setvar_void(_particle, detection_time, (void *)&zero)) {
         printf("Detector_triplet: %s: Time paramter does not exist!\nERROR. Exiting",
                NAME_CURRENT_COMP, detection_time);
         exit(-1);
@@ -285,11 +286,12 @@ TRACE
       }
     }
     if (STORE_CHARGE){
-    	particle_setvar(_particle, charge_a, left_charge);
-    	particle_setvar(_particle, charge_b, right_charge);
+    	particle_setvar_void(_particle, charge_a, (void *)&left_charge);
+    	particle_setvar_void(_particle, charge_b, (void *)&right_charge);
     }
     if (STORE_TIME){
-      particle_setvar(_particle, detection_time, (t0 + t1) * 0.5);
+      double avg_time = 0.5 * (t0 + t1);
+      particle_setvar_void(_particle, detection_time, (void *)&avg_time);
     }
   %}
 
