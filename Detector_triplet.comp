@@ -164,8 +164,9 @@ INITIALIZE
     }
     
     double zero=0.;
+    int zint=0;
     if(charge_a != 0 && charge_b != 0 && charge_a[0] != '\0' && charge_b[0] != '\0'){
-    	if (particle_setvar_void(_particle, charge_a, (void *)&zero) || particle_setvar_void(_particle, charge_b, (void *)&zero)){
+    	if (particle_setvar_void(_particle, charge_a, (void *)&zint) || particle_setvar_void(_particle, charge_b, (void *)&zint)){
 	      printf("Detector_triplet: %s: Charge parameter(s) %s and/or %s do not exist!\nERROR. Exiting", 
                NAME_CURRENT_COMP, charge_a, charge_b);
         exit(-1);
@@ -207,7 +208,7 @@ TRACE
       coords_get(rot_apply(rot, coords_set(x - x1[0], y - x1[1], z - x1[2])), &tx, &ty, &tz);
       coords_get(rot_apply(rot, coords_set(vx, vy, vz)), &tvx, &tvy, &tvz);
       if (cylinder_intersect(&t0, &t1, tx, ty, tz, tvx, tvy, tvz, radius0, length0)){
-        intersects = 0; 
+        intersects = 1; 
       }
     }
     if (intersects < 0){
@@ -260,15 +261,17 @@ TRACE
       }
       
       // use ty to determine the right-end charge (how close ty is to 1)
-      right_charge = ty * (2==intersects ? length2 * rho2 : intersects ? length1 * rho1 : length0 * rho0);
+      double res = ty * (2==intersects ? length2 * rho2 : intersects ? length1 * rho1 : length0 * rho0);
       // adding the preceeding tube(s) if necessary, plus their inter-tube resistances
       if (intersects > 0){
-        right_charge += rho0 * length0 + R01;
+        res += rho0 * length0 + R01;
       }
       if (intersects > 1){
-        right_charge += rho1 * length1 + R12;
+        res += rho1 * length1 + R12;
       }
-      left_charge = TOTAL_RESISTANCE - right_charge;
+      right_charge = (int)(levels * res / TOTAL_RESISTANCE);
+      left_charge = levels - right_charge;
+      //left_charge = TOTAL_RESISTANCE - right_charge;
       }
     } else {
       right_charge = -1;
