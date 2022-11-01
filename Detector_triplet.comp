@@ -40,6 +40,7 @@
 * rho1:    The resistivity of the 1st tube [ohm/m]
 * rho2:    The resistivity of the 2nd tube [ohm/m]
 * rho:     The tube resistivity. Overrides rho0, rho1, rho2 [ohm/m]
+* dead_length: A characteristic length over which the tube loses sensitivity towards its end [m]
 * filename: Name of file in which to store the detector image [string]
 * restore_neutron: If set, the monitor does not influence the neutron state [1]
 * nowritefile: [1] If set, monitor will skip writing to disk
@@ -55,12 +56,13 @@
 
 DEFINE COMPONENT Detector_triplet
 DEFINITION PARAMETERS ()
-  SETTING PARAMETERS (int no=300, string filename=0, levels=1024,
+  SETTING PARAMETERS (int no=300, string filename=0, int levels=4096, int threshold=400,
     radius0=0.01, radius1=0.01, radius2=0.01, radius=0.,
     vector x0={0,0,0}, vector x1={0,0,0}, vector x2={0,0,0},
     vector e0={0,0.1,0}, vector e1={0,0.1,0}, vector e2={0,0.1,0},
-    R=0, R01=10, R12=10,
-    rho=0, rho0=100, rho1=100, rho2=100,
+    R=0, Ra=0, R01=2, R12=2, Rb=0,
+    rho=0, rho0=5511.81, rho1=5511.81, rho2=5511.81,  // Reuter-Stokes tubes have nominally 140 Ohm inch resistivities == 5511.81 Ohm meter
+    dead_length=0.0254,
     He3_pressure=0,
     string charge_a=0, string charge_b=0, string detection_time=0,
     restore_neutron=0, int nowritefile=0)
@@ -101,6 +103,16 @@ double Detector_triplet_angle_x(double v[3]){
   double h[3];
   Detector_triplet_hat(v, h);
   return atan2(h[2], h[1]);
+}
+
+double Detector_triplet_step(double a, double b, double x){
+  x = (x < a) ? 0 : (x > b) ? 1 : (x-a)/(b-a);
+  // 6*x^5 - 15*x^4 + 10*x^3 <-- has zero first and second derivatives at 0 and 1
+  return ((6 * x - 15) * x + 10) * x * x * x;  
+}
+
+double Detector_triplet_end_steps(double x, double xi){
+  return Detector_triplet_step(0, xi, x) + Detector_triplet_step(0, xi, 1-x) - 1.;
 }
 
 %}
@@ -153,7 +165,7 @@ INITIALIZE
     if (R > 0) { R01 = R12 = R; }
     if (rho > 0) { rho0 = rho1 = rho2 = rho; }
 
-    TOTAL_RESISTANCE = rho0 * length0 + R01 + rho1 * length1 + R12 + rho2 * length2;
+    TOTAL_RESISTANCE = Ra + rho0 * length0 + R01 + rho1 * length1 + R12 + rho2 * length2 + Rb;
     
     /* Check for intersecting tubes ... */
     if (0 /**/) {
@@ -191,7 +203,7 @@ TRACE
     double t0, t1;
     double rot[3][3];
     int intersects=-1;
-    double left_charge, right_charge;
+    int left_charge, right_charge;
 
     if (intersects < 0){
       // Perform the coordinate transformation for the first tube:
@@ -226,6 +238,7 @@ TRACE
         double transmit_He3 = exp(-7.417 * He3_pressure * fabs(t1 - t0) * 2 * PI * K2V);
         p = p * (1 - transmit_He3);
       }
+          
       // set the temporary y position and velocity to the input values if necessary
       if (intersects == 1){
         ty = y;
@@ -247,6 +260,10 @@ TRACE
        // exit(1);
       }
       else {
+      // (possibly) modify the probability due to reduced counting efficiency near each tube end
+      if (dead_length > 0){
+        p = p * Detector_triplet_end_steps(ty, dead_length / ((intersects == 1) ? length1 : intersects ? length2 : length0));
+      }  
 
       // determine the linear pixel index
       i = floor(no / 3 * ty) + intersects * floor(no / 3);
@@ -261,7 +278,7 @@ TRACE
       }
       
       // use ty to determine the right-end charge (how close ty is to 1)
-      double res = ty * (2==intersects ? length2 * rho2 : intersects ? length1 * rho1 : length0 * rho0);
+      double res = Ra + ty * (2==intersects ? length2 * rho2 : intersects ? length1 * rho1 : length0 * rho0);
       // adding the preceeding tube(s) if necessary, plus their inter-tube resistances
       if (intersects > 0){
         res += rho0 * length0 + R01;
@@ -269,9 +286,11 @@ TRACE
       if (intersects > 1){
         res += rho1 * length1 + R12;
       }
-      right_charge = (int)(levels * res / TOTAL_RESISTANCE);
-      left_charge = levels - right_charge;
-      //left_charge = TOTAL_RESISTANCE - right_charge;
+      // mimic the pulse-height spectrum used to set gamma discrimination
+      int height = threshold + (int)((levels - threshold) * rand01());
+      
+      right_charge = (int)(height * res / TOTAL_RESISTANCE);
+      left_charge = height - right_charge;
       }
     } else {
       right_charge = -1;
@@ -289,6 +308,7 @@ TRACE
       }
     }
     if (STORE_CHARGE){
+    	printf("Charges (left, right) (%d, %d)\n", left_charge, right_charge);
     	particle_setvar_void(_particle, charge_a, (void *)&left_charge);
     	particle_setvar_void(_particle, charge_b, (void *)&right_charge);
     }
